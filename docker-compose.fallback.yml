@@ -1,0 +1,32 @@
+# Overlay for the emergency local fallback deploy: puts Caddy in front
+# of the web container (TLS termination + the public domain), so `web`
+# itself never needs to be reachable directly.
+#
+# Usage:
+#   TABBYCAT_DOMAIN=your.domain.example \
+#     podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.fallback.yml up -d
+#
+# Host ports are unprivileged (8080/8443): rootless podman can't bind
+# 80/443 directly without a sysctl change. See the exposure runbook
+# for how to get real 80/443 traffic here (sysctl vs router remap).
+
+version: '3'
+
+services:
+  caddy:
+    image: docker.io/library/caddy:latest
+    depends_on:
+      - web
+    volumes:
+      - ./Caddyfile.fallback:/etc/caddy/Caddyfile:ro,Z
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - TABBYCAT_DOMAIN=${TABBYCAT_DOMAIN:?set TABBYCAT_DOMAIN before starting}
+    ports:
+      - "8080:80"
+      - "8443:443"
+
+volumes:
+  caddy_data:
+  caddy_config:
