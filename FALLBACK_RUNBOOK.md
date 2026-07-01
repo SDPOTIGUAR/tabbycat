@@ -8,7 +8,7 @@ Oracle Cloud cair durante um torneio.
 
 ```bash
 cd "TABBY SDP"
-TABBYCAT_DOMAIN=seu.dominio.exemplo \
+TABBYCAT_DOMAIN=viii-interno.sdpotiguar.org \
   podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.fallback.yml up -d
 ```
 
@@ -38,9 +38,9 @@ publica Caddy em `8080`/`8443` no host. Pra tráfego real de fora bater em
 
 ## DNS
 
-Domínio único (mesmo link do Oracle) com TTL curto. Durante a emergência,
-repontar o registro A pro IP público de casa; depois, repontar de volta pro
-Oracle.
+Domínio: `viii-interno.sdpotiguar.org` (mesmo link do Oracle) com TTL curto.
+Durante a emergência, repontar o registro A pro IP público de casa; depois,
+repontar de volta pro Oracle.
 
 ## Checklist de hardening antes de ativar
 
@@ -72,6 +72,7 @@ Oracle.
 ## O que falta pra isso funcionar de ponta a ponta
 
 - Cadastro na Oracle Cloud (Always Free) — só o Leo consegue fazer.
-- Domínio + estratégia de DNS de TTL curto — a definir.
+- Registro A de `viii-interno.sdpotiguar.org` com TTL curto — a criar no
+  provedor de DNS do domínio.
 - Config do roteador de casa (port-forward) — a fazer só na hora da
   emergência, não deixar ligado por padrão.
