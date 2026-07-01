@@ -80,6 +80,16 @@ conexão falha (`ERR_SSL_PROTOCOL_ERROR`), não é só um aviso, é erro total.
 Certificado autoassinado troca essa falha total por um aviso clicável
 ("não seguro", um clique resolve) — não é bonito, mas funciona.
 
+**Chrome travava (Firefox não) com o autoassinado — causa achada e corrigida:**
+o roteador só libera TCP na porta 8443 (UDP não é redirecionado). O Caddy
+anuncia HTTP/3 (QUIC, que roda sobre UDP) por padrão; o Chrome tenta QUIC
+primeiro e, combinado com um bug/comportamento conhecido do Chrome
+especificamente com QUIC + certificado autoassinado, não faz o fallback
+limpo pra TCP — trava até dar timeout. O Firefox não tenta QUIC do mesmo
+jeito num domínio novo, por isso funcionava direto nele. Corrigido forçando
+`servers { protocols h1 h2 }` no Caddyfile (desabilita HTTP/3 de vez).
+Ainda precisa de confirmação externa no Chrome pra fechar de vez.
+
 ## Roteador (Vivo Box / Inventus RTF8225VW)
 
 Painel em `192.168.15.1`, login `admin` + senha na etiqueta do aparelho.
@@ -142,5 +152,11 @@ do evento.
 - Hostname fixo via DuckDNS — feito e testado (`sdp-viii-interno.duckdns.org`).
 - Stack local (db+redis+web+worker+caddy) — testado de ponta a ponta com
   certificado autoassinado, funcionando.
-- Certificado real via DNS-01/DuckDNS — tentado e abandonado por instabilidade
-  do lado do DuckDNS, não é bloqueio permanente, pode tentar de novo depois.
+- Certificado real via DNS-01 — tentado com DuckDNS (nameservers instáveis)
+  e deSEC (incompatibilidade de validação DNSSEC), ambos abandonados por
+  motivos do lado dos provedores, não da nossa config. Plugins de ambos
+  continuam compilados na imagem do Caddy caso valha retomar depois.
+- Chrome travando no autoassinado — diagnosticado como QUIC/HTTP3 tentando
+  UDP (porta não liberada) + bug conhecido do Chrome nessa combinação com
+  certificado autoassinado. Corrigido desabilitando HTTP/3 no Caddy. Falta
+  confirmação externa no Chrome.
