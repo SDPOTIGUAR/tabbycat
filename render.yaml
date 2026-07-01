@@ -11,7 +11,7 @@ services:
     plan: free
     region: oregon
     buildCommand: "./bin/render-compile.sh"
-    startCommand: "npm run render-serve"
+    startCommand: "npm run render-server"
     envVars:
       - key: DATABASE_URL
         fromDatabase:
