@@ -13,6 +13,7 @@ version: '3'
 services:
   db:
     image: docker.io/library/postgres:18
+    restart: unless-stopped
     environment:
       - POSTGRES_PASSWORD=tabbycat
       - POSTGRES_USER=tabbycat
@@ -22,11 +23,13 @@ services:
 
   redis:
     image: docker.io/library/redis:6
+    restart: unless-stopped
     volumes:
      - redis_data:/data
 
   web:
     build: .
+    restart: unless-stopped
     # Hack to wait until Postgres is up before running things
     command: ["./bin/docker-wait.sh", "--timeout=0", "db:5432", "--", "./bin/docker-run-honcho.sh"]
     depends_on:
@@ -46,6 +49,7 @@ services:
 
   worker:
     build: .
+    restart: unless-stopped
     # Hack to wait until migration is done before running things
     command: ["./bin/docker-wait.sh", "--timeout=0", "web:8000", "--", "./bin/docker-run-worker.sh"]
     depends_on:

@@ -12,6 +12,7 @@ version: '3'
 services:
   duckdns:
     image: docker.io/linuxserver/duckdns:latest
+    restart: unless-stopped
     environment:
       - SUBDOMAINS=sdp-viii-interno
       - TOKEN=${DUCKDNS_TOKEN:?set DUCKDNS_TOKEN before starting}
