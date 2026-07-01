@@ -3,7 +3,7 @@
 # blocks inbound 80/443, which rules out HTTP-01/TLS-ALPN-01 entirely.
 FROM docker.io/library/caddy:builder AS builder
 
-RUN xcaddy build --with github.com/caddy-dns/duckdns
+RUN xcaddy build --with github.com/caddy-dns/duckdns --with github.com/caddy-dns/desec
 
 FROM docker.io/library/caddy:latest
 

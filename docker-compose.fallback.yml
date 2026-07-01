@@ -1,17 +1,18 @@
-# Optional HTTPS layer: Caddy in front of `web`, self-signed cert
-# (tls internal). Fixes browsers/WhatsApp that force-upgrade links to
-# https:// and hard-fail on a plain HTTP server - trades that hard
-# failure for a click-through "not secure" warning instead.
+# HTTPS via Caddy, self-signed cert (tls internal). Fixes WhatsApp/Chrome
+# force-upgrading links to https:// and hard-failing on plain HTTP.
 #
-# A real trusted cert (no warning at all) was attempted via DNS-01
-# through DuckDNS, since Vivo permanently blocks inbound 80/443 (rules
-# out HTTP-01/TLS-ALPN-01). Tried three ways (Caddy's own duckdns
-# plugin, a manual certbot hook, the dedicated certbot-dns-duckdns
-# plugin) - all failed on DuckDNS's own nameservers being flaky
-# (SERVFAIL / unreachable / hangs), not our config. The image is still
-# built with the duckdns plugin compiled in (Dockerfile.caddy) in case
-# it's worth retrying later - see git history on Caddyfile.fallback
-# for the DNS-01 config to restore.
+# A real trusted cert was attempted via DNS-01 through two providers -
+# DuckDNS (nameservers gave inconsistent/empty TXT values across 4
+# attempts, 3 tools) and deSEC (persistent DNSSEC NSEC3 validation
+# failure between Let's Encrypt and deSEC's signing for this domain,
+# confirmed not a timing issue). Both abandoned. Self-signed works in
+# Firefox; Chrome hangs on it for reasons not fully diagnosed - tell
+# participants to use Firefox, or revisit Cloudflare Tunnel if that
+# becomes acceptable later.
+#
+# The image still has both duckdns and desec DNS-01 plugins compiled in
+# (Dockerfile.caddy) in case either is worth retrying later - see git
+# history on Caddyfile.fallback for the DNS-01 config to restore.
 #
 # Usage:
 #   TABBYCAT_DOMAIN=sdp-viii-interno.duckdns.org \
