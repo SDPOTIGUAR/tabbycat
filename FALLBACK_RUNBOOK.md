@@ -1,60 +1,74 @@
 # Fallback local de emergência — Tabbycat
 
-Sobe o stack completo (db + redis + web + worker + Caddy) neste notebook,
-usando as mesmas imagens/config do deploy principal. Só entra em uso se o
-Oracle Cloud cair durante um torneio.
+Sobe o stack completo (db + redis + web + worker) neste notebook, usando as
+mesmas imagens/config do deploy principal. Só entra em uso se o Oracle Cloud
+cair durante um torneio.
+
+HTTP puro, sem TLS/certificado — decisão deliberada: sem domínio próprio e
+com a Vivo bloqueando as portas 80/443 de entrada (ver seção abaixo), não dá
+pra ter certificado real aqui, e certificado autoassinado só gera aviso
+assustador pros participantes sem ganho real de segurança pro contexto (torneio
+interno, baixo risco). Login/senha trafegam sem criptografia — aceito
+conscientemente.
 
 ## Subir
 
 ```bash
 cd "TABBY SDP"
-TABBYCAT_DOMAIN=viii-interno.sdpotiguar.org \
-  podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.fallback.yml up -d
+podman-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
-`TABBYCAT_DOMAIN` é obrigatório — sem ele o Caddy não sobe (falha rápido,
-de propósito). Pra teste local sem domínio real, use `TABBYCAT_DOMAIN=localhost`
-(Caddy emite certificado local automaticamente, sem validação externa).
+Não precisa de nenhuma variável de ambiente — `web` já publica a porta 8000
+no host por padrão.
 
 ## Derrubar
 
 ```bash
-podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.fallback.yml down
+podman-compose -f docker-compose.yml -f docker-compose.prod.yml down
 ```
 
-## Portas 80/443 (não é automático)
+## Roteador (Vivo Box / Inventus RTF8225VW)
 
-Rootless podman não binda portas privilegiadas por padrão. O compose hoje
-publica Caddy em `8080`/`8443` no host. Pra tráfego real de fora bater em
-80/443, duas opções:
+Painel em `192.168.15.1`, login `admin` + senha na etiqueta do aparelho.
+Menu: **Configurações → Rede Local → Redirecionar Portas**.
 
-1. **Tradução no roteador (recomendado)** — encaminha WAN:443 → IP-do-notebook:8443
-   (e WAN:80 → :8080 se quiser redirect automático http→https). Não exige
-   mudar nada no sistema, mantém o podman totalmente rootless.
-2. **sysctl no host** — `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80`
-   (ou persistir em `/etc/sysctl.conf`) e trocar as portas do compose de volta
-   pra `80:80`/`443:443`. Enfraquece o isolamento rootless; só se a opção 1
-   não for viável no roteador.
+| Campo | Valor |
+|---|---|
+| Nome da Regra | `tabbycat-http` |
+| Protocolo | TCP |
+| Porta Externa | `8443` |
+| Porta Interna | `8000` |
+| IP Interno | `192.168.15.7` (IP local deste notebook — conferir se mudou) |
 
-## DNS
+**Por que porta externa 8443 e não 80:** a Vivo bloqueia permanentemente as
+portas de entrada "clássicas" (80, 443, 21, 23, 25, 53 e demais abaixo de
+1024) no nível da própria operadora pra planos residenciais — nenhuma
+configuração de roteador contorna isso, só existe desbloqueio em link
+dedicado/empresarial. Portas acima de 1024 passam livremente. Confirmado na
+prática: com porta externa 443 a conexão nunca chegava (timeout); com 8443
+funcionou.
 
-Domínio: `viii-interno.sdpotiguar.org` (mesmo link do Oracle) com TTL curto.
-Durante a emergência, repontar o registro A pro IP público de casa; depois,
-repontar de volta pro Oracle.
+O painel gera automaticamente uma regra de firewall ("pinhole") junto com o
+redirecionamento — não precisa mexer na aba Firewall separadamente.
+
+Depois de configurado, o endereço pra divulgar é:
+
+**http://<IP-público-atual>:8443/**
+
+(confirma o IP público atual antes de divulgar — é dinâmico, pode ter
+mudado desde a última vez).
 
 ## Checklist de hardening antes de ativar
 
-- [ ] Firewalld: só libera a porta usada no port-forward (8443, ou 443 se for
-      a opção sysctl). Nunca abrir 22 (SSH) nem a porta interna do Django (8000).
+- [ ] Firewalld local: confirmar que a porta 8000 (só ela, é a única usada
+      agora) está liberada.
       ```bash
-      ! sudo firewall-cmd --add-port=8443/tcp --permanent
-      ! sudo firewall-cmd --add-port=8080/tcp --permanent   # só se for usar redirect http
+      ! sudo firewall-cmd --add-port=8000/tcp --permanent
       ! sudo firewall-cmd --reload
       ```
-      Pra desativar depois da emergência:
+      Pra desativar depois:
       ```bash
-      ! sudo firewall-cmd --remove-port=8443/tcp --permanent
-      ! sudo firewall-cmd --remove-port=8080/tcp --permanent
+      ! sudo firewall-cmd --remove-port=8000/tcp --permanent
       ! sudo firewall-cmd --reload
       ```
 - [ ] Auditar o que mais está escutando no notebook (KDE Connect, Samba,
@@ -71,8 +85,7 @@ repontar de volta pro Oracle.
 
 ## O que falta pra isso funcionar de ponta a ponta
 
-- Cadastro na Oracle Cloud (Always Free) — só o Leo consegue fazer.
-- Registro A de `viii-interno.sdpotiguar.org` com TTL curto — a criar no
-  provedor de DNS do domínio.
-- Config do roteador de casa (port-forward) — a fazer só na hora da
-  emergência, não deixar ligado por padrão.
+- Cadastro na Oracle Cloud (Always Free) — já feito.
+- Regra de redirecionamento de porta no roteador — já feita e testada
+  (funcionando via 4G externo, confirmado).
+- Nada de domínio/DNS necessário nessa versão (HTTP puro, IP direto).
