@@ -12,16 +12,16 @@ version: '3'
 
 services:
   db:
-    image: postgres:18
+    image: docker.io/library/postgres:18
     environment:
       - POSTGRES_PASSWORD=tabbycat
       - POSTGRES_USER=tabbycat
       - POSTGRES_DB=tabbycat
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
 
   redis:
-    image: redis:6
+    image: docker.io/library/redis:6
     volumes:
      - redis_data:/data
 

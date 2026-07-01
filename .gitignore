@@ -82,3 +82,6 @@ nosetests.xml
 
 # Redis
 dump.rdb
+
+# Claude Code session state
+.claude/
