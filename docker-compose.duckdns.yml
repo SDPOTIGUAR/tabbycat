@@ -1,0 +1,18 @@
+# Keeps sdp-viii-interno.duckdns.org pointed at this connection's current
+# public IP automatically (checks every few minutes). No account/domain
+# needed beyond the free DuckDNS signup; just updates a DNS record, no
+# proxy/relay in the actual traffic path.
+#
+# Usage:
+#   DUCKDNS_TOKEN=<token from duckdns.org, never commit this> \
+#     podman-compose -f docker-compose.duckdns.yml up -d
+
+version: '3'
+
+services:
+  duckdns:
+    image: docker.io/linuxserver/duckdns:latest
+    environment:
+      - SUBDOMAINS=sdp-viii-interno
+      - TOKEN=${DUCKDNS_TOKEN:?set DUCKDNS_TOKEN before starting}
+      - LOG_FILE=false

@@ -51,12 +51,29 @@ funcionou.
 O painel gera automaticamente uma regra de firewall ("pinhole") junto com o
 redirecionamento — não precisa mexer na aba Firewall separadamente.
 
-Depois de configurado, o endereço pra divulgar é:
+## URL fixa (DuckDNS)
 
-**http://<IP-público-atual>:8443/**
+O IP é dinâmico — pra endereço estável o suficiente pra mandar login por
+e-mail com antecedência, o `docker-compose.duckdns.yml` sobe um container
+que mantém `sdp-viii-interno.duckdns.org` sempre apontando pro IP atual
+desta conexão, checando a cada poucos minutos. Sem isso, o IP pode mudar
+entre o envio dos e-mails e o dia do evento.
 
-(confirma o IP público atual antes de divulgar — é dinâmico, pode ter
-mudado desde a última vez).
+```bash
+DUCKDNS_TOKEN=<token de duckdns.org, nunca commitar> \
+  podman-compose -f docker-compose.duckdns.yml up -d
+```
+
+Esse container precisa continuar rodando (não só no dia do evento — desde
+antes de mandar os e-mails de login).
+
+Endereço final pra divulgar:
+
+**http://sdp-viii-interno.duckdns.org:8443/**
+
+(testar sempre por fora da rede de casa — celular com Wi-Fi desligado — o
+roteador não suporta hairpin NAT, então acessar de dentro de casa pelo
+próprio IP/hostname público trava, mesmo estando tudo certo).
 
 ## Checklist de hardening antes de ativar
 
@@ -88,4 +105,4 @@ mudado desde a última vez).
 - Cadastro na Oracle Cloud (Always Free) — já feito.
 - Regra de redirecionamento de porta no roteador — já feita e testada
   (funcionando via 4G externo, confirmado).
-- Nada de domínio/DNS necessário nessa versão (HTTP puro, IP direto).
+- Hostname fixo via DuckDNS — já feito e testado (`sdp-viii-interno.duckdns.org`).
