@@ -1,11 +1,12 @@
 # Tabbycat self-hosted — roteiro de operação
 
-Stack completo (db + redis + web + worker + Caddy + atualizador DuckDNS)
-rodando neste notebook via Podman. HTTPS com certificado autoassinado (ver
-justificativa mais abaixo).
+Stack completo (db + redis + web + worker) rodando neste notebook via
+Podman, exposto publicamente via **Cloudflare Tunnel** (`cloudflared`).
 
-**URL para divulgar:** https://sdp-viii-interno.duckdns.org:8443/
-(vai pedir pra aceitar o aviso de certificado — normal, é autoassinado)
+**Método ativo agora: Cloudflare Tunnel (URL efêmera).** Ver seção
+"Histórico" mais abaixo pra entender por que não é Caddy/roteador/DNS
+próprio — essa parte foi tentada a fundo e abandonada por bloqueio do
+lado da operadora, não por escolha.
 
 ## Referência rápida
 
@@ -16,14 +17,18 @@ cd "~/Desktop/Projetos/TABBY SDP"
 
 **Subir tudo:**
 ```bash
-TABBYCAT_DOMAIN=sdp-viii-interno.duckdns.org \
-  podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.fallback.yml up -d
-DUCKDNS_TOKEN=<token de duckdns.org> podman-compose -f docker-compose.duckdns.yml up -d
+podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.quicktunnel.yml up -d
+DUCKDNS_TOKEN=<token de duckdns.org> podman-compose -f docker-compose.duckdns.yml up -d   # opcional, ver nota abaixo
+```
+
+**Pegar a URL pública atual** (muda a cada restart do `cloudflared`):
+```bash
+podman logs tabbysdp_cloudflared_1 2>&1 | grep -A2 "trycloudflare"
 ```
 
 **Derrubar tudo:**
 ```bash
-podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.fallback.yml -f docker-compose.duckdns.yml down
+podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.quicktunnel.yml -f docker-compose.duckdns.yml down
 ```
 
 **Ver status de tudo:**
@@ -31,7 +36,7 @@ podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compos
 podman ps -a --filter "name=tabbysdp" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 ```
 
-**Ver logs de um serviço** (`web`, `worker`, `db`, `redis`, `duckdns`):
+**Ver logs de um serviço** (`web`, `worker`, `db`, `redis`, `cloudflared`, `duckdns`):
 ```bash
 podman logs tabbysdp_<serviço>_1 --tail 50
 podman logs -f tabbysdp_web_1        # acompanhar em tempo real
@@ -41,17 +46,15 @@ podman logs -f tabbysdp_web_1        # acompanhar em tempo real
 ```bash
 podman restart tabbysdp_<serviço>_1
 ```
+**Cuidado com `tabbysdp_cloudflared_1`**: reiniciar troca a URL pública.
+Só reiniciar se a URL já não tiver sido divulgada, ou avisando todo mundo
+da URL nova depois.
 
 **Testar se está respondendo** (local, de dentro de casa):
 ```bash
-curl -sI http://127.0.0.1:8000/           # web direto, sem TLS
-curl -sk -o /dev/null -w '%{http_code}\n' https://127.0.0.1:8443/   # via Caddy
+curl -sI http://127.0.0.1:8000/
 ```
-Deve responder `302` apontando pra `/start/` ou pra tela de login. Testar
-pelo hostname público (`sdp-viii-interno.duckdns.org:8443`) **de dentro de
-casa trava sempre** — o roteador não suporta hairpin NAT. Isso não indica
-problema real; só o teste por fora (celular no 4G/5G, Wi-Fi desligado) é
-confiável.
+Deve responder `302` apontando pra `/start/` ou pra tela de login.
 
 **Backup do banco:**
 ```bash
@@ -63,100 +66,140 @@ podman exec tabbysdp_db_1 pg_dump -U tabbycat tabbycat > backup-$(date +%Y%m%d-%
 cat backup-XXXXXXXX.sql | podman exec -i tabbysdp_db_1 psql -U tabbycat tabbycat
 ```
 
-## Por que HTTPS autoassinado (não certificado real)
+## Por que Cloudflare Tunnel (não é a opção "mais self-hosted")
 
-Sem domínio próprio controlável e com a Vivo bloqueando as portas 80/443 de
-entrada (a forma padrão de validar certificado real via Let's Encrypt), não
-dá pra ter certificado confiável direto. Tentamos contornar isso via DNS-01
-usando o DuckDNS (que não depende de porta nenhuma pra validar) — três
-abordagens diferentes, todas esbarraram nos nameservers do próprio DuckDNS
-estando instáveis (SERVFAIL, timeout). Não é bloqueado pra sempre — pode
-valer tentar de novo depois, mas não é algo pra depender agora.
+Trade-off consciente: Cloudflare Tunnel roteia o tráfego pela rede deles
+(não é 100% ponta-a-ponta self-hosted), mas foi o que sobrou funcionando
+depois de esgotar as alternativas mais self-hosted numa mesma madrugada
+(ver histórico completo abaixo). Sem porta pra abrir, sem depender do
+roteador, sem a operadora no meio decidindo se deixa passar.
 
-Por que HTTPS mesmo assim (em vez de manter HTTP puro): WhatsApp e navegadores
-modernos forçam `https://` automaticamente em qualquer link, mesmo quando
-compartilhado com `http://` explícito — sem TLS nenhum escutando na porta, a
-conexão falha (`ERR_SSL_PROTOCOL_ERROR`), não é só um aviso, é erro total.
-Certificado autoassinado troca essa falha total por um aviso clicável
-("não seguro", um clique resolve) — não é bonito, mas funciona.
+**Limitação real**: o Quick Tunnel (sem conta Cloudflare) gera uma URL
+aleatória que **muda a cada restart do container** — não dá pra usar
+pra mandar login por e-mail com antecedência. Isso só se resolve com
+Oracle (adiado) ou domínio próprio.
 
-**Chrome travava (Firefox não) com o autoassinado — causa achada e corrigida:**
-o roteador só libera TCP na porta 8443 (UDP não é redirecionado). O Caddy
-anuncia HTTP/3 (QUIC, que roda sobre UDP) por padrão; o Chrome tenta QUIC
-primeiro e, combinado com um bug/comportamento conhecido do Chrome
-especificamente com QUIC + certificado autoassinado, não faz o fallback
-limpo pra TCP — trava até dar timeout. O Firefox não tenta QUIC do mesmo
-jeito num domínio novo, por isso funcionava direto nele. Corrigido forçando
-`servers { protocols h1 h2 }` no Caddyfile (desabilita HTTP/3 de vez).
-Ainda precisa de confirmação externa no Chrome pra fechar de vez.
+## Histórico — o que foi tentado antes de chegar aqui
 
-## Roteador (Vivo Box / Inventus RTF8225VW)
+Nessa ordem, todos na mesma madrugada:
+
+1. **HTTP puro, IP direto, port-forward no roteador** — funcionou
+   inicialmente (confirmado por fora, via 4G). Precisou descobrir na
+   prática que a Vivo bloqueia permanentemente as portas "clássicas"
+   (80, 443 e outras abaixo de 1024) no nível da operadora — porta
+   externa teve que ser >1024 (usamos 8443).
+2. **HTTPS com Caddy + certificado autoassinado (`tls internal`)** —
+   necessário porque WhatsApp/Chrome forçam `https://` em qualquer link
+   automaticamente, e sem TLS nenhum escutando a conexão falha
+   (`ERR_SSL_PROTOCOL_ERROR`), não é só aviso. Funcionava no Firefox,
+   travava no Chrome.
+3. **Diagnóstico do travamento no Chrome** — Caddy anuncia HTTP/3 (QUIC,
+   roda sobre UDP); só a porta TCP estava liberada no roteador. Chrome
+   tenta QUIC primeiro e, combinado com um bug conhecido do Chrome
+   especificamente com QUIC + certificado autoassinado, não faz o
+   fallback limpo pra TCP. Corrigido com `servers { protocols h1 h2 }`
+   no Caddyfile — confirmado resolvido.
+4. **Certificado real via DNS-01 com DuckDNS** — três abordagens
+   diferentes (plugin nativo do Caddy, hook manual, plugin dedicado do
+   certbot), todas falharam por nameservers do DuckDNS instáveis
+   (valor vazio no TXT, SERVFAIL, travamentos) — confirmado que não era
+   config nossa, é o provedor.
+5. **Certificado real via DNS-01 com deSEC** — chegou mais longe (conta
+   ACME real, desafio tentado), mas bateu numa incompatibilidade
+   persistente de validação DNSSEC (NSEC3) entre o Let's Encrypt e a
+   assinatura do deSEC pra esse domínio especificamente. Confirmado via
+   múltiplas tentativas (produção e staging) que não era só demora de
+   propagação.
+6. **De volta pro autoassinado + fix do Chrome** — funcionando, mas
+   depois de um tempo a conexão externa começou a dar **"connection
+   refused"** (não mais timeout) mesmo com a configuração do roteador
+   conferida duas vezes (regra de redirecionamento + firewall pinhole,
+   idênticas e corretas nas duas checagens) e **depois de reiniciar o
+   roteador** — o que descarta dessincronia de config. Ver análise
+   detalhada logo abaixo.
+7. **Cloudflare Tunnel (atual)** — sem porta, sem depender do roteador
+   nem da operadora. Funcionando.
+
+### Sobre o "connection refused" súbito (item 6) — o que sabemos e o que não sabemos
+
+**O que é consistente com a evidência:**
+- A porta funcionava (testada e confirmada por fora, via 4G, mais de
+  uma vez) e parou de funcionar depois de várias horas de testes
+  repetidos e intensos na mesma porta/IP.
+- ISPs residenciais (Vivo inclusa, por política documentada em termos
+  de uso similares — ex. Comcast) têm sistemas automatizados de
+  detecção de abuso que podem bloquear tráfego que se pareça com scan
+  de porta ou uso "tipo servidor" incomum numa linha residencial.
+- A configuração do roteador (regra de porta + firewall pinhole) foi
+  conferida duas vezes, idêntica e correta, e **sobreviveu a um reboot
+  do roteador** — descarta bug de sincronização de UI vs. config real
+  aplicada.
+
+**O que não foi possível confirmar (limitação real do diagnóstico):**
+- O teste de "connection refused" foi feito por mim via uma ferramenta
+  de fetch que roda de infraestrutura de nuvem (não um celular real).
+  Provedores costumam tratar faixas de IP conhecidas de datacenter/nuvem
+  com mais suspeita do que tráfego de operadora móvel — é possível que
+  o bloqueio seja especificamente contra esse tipo de origem, e que um
+  celular real (numa rede móvel comum) tivesse um resultado diferente.
+  Isso **não foi testado novamente a partir do celular depois do reboot**
+  antes de decidirmos migrar pro Cloudflare Tunnel — journal em aberto,
+  não fechado com certeza absoluta.
+- Não há confirmação oficial da Vivo (documentação pública ou suporte)
+  de um sistema automático de bloqueio por tráfego anômalo — a hipótese
+  é razoável e consistente com práticas comuns de ISP, mas não
+  encontrada documentada especificamente pra Vivo.
+
+**Conclusão prática:** mesmo que a causa exata do "connection refused"
+fique em aberto, o padrão da noite (bloqueio de portas conhecidas +
+esse novo bloqueio pouco claro) reforça que depender dessa conexão
+residencial pra hospedar algo publicamente é frágil. Cloudflare Tunnel
+contorna o problema inteiro (conexão sempre de saída, nunca precisa de
+porta aberta).
+
+## Roteador (Vivo Box / Inventus RTF8225VW) — referência, não está em uso agora
 
 Painel em `192.168.15.1`, login `admin` + senha na etiqueta do aparelho.
-Menu: **Configurações → Rede Local → Redirecionar Portas**.
+Menu: **Configurações → Rede Local → Redirecionar Portas**. Regra que
+tínhamos configurado (não removida, só não está mais no caminho ativo):
+TCP, externa `8443`, interna `8443`, IP interno `192.168.15.7`.
 
-| Campo | Valor |
-|---|---|
-| Nome da Regra | `tabbycat-http` |
-| Protocolo | TCP |
-| Porta Externa | `8443` |
-| Porta Interna | `8443` (aponta pro Caddy, não mais direto pro web/8000) |
-| IP Interno | `192.168.15.7` (IP local deste notebook — conferir se mudou) |
+## URL fixa (DuckDNS) — ainda relevante como updater de IP
 
-**Por que porta externa 8443 e não 80:** a Vivo bloqueia permanentemente as
-portas de entrada "clássicas" (80, 443, 21, 23, 25, 53 e demais abaixo de
-1024) no nível da própria operadora pra planos residenciais — nenhuma
-configuração de roteador contorna isso, só existe desbloqueio em link
-dedicado/empresarial. Portas acima de 1024 passam livremente.
+O container `docker-compose.duckdns.yml` mantém `sdp-viii-interno.duckdns.org`
+apontando pro IP público atual desta conexão. Não é mais usado como parte
+do caminho de acesso principal (isso agora é a URL do Cloudflare Tunnel),
+mas não custa deixar rodando — pode ser útil se algum dia reativarmos o
+caminho via roteador.
 
-O painel gera automaticamente uma regra de firewall ("pinhole") junto com o
-redirecionamento — não precisa mexer na aba Firewall separadamente.
+## Checklist de hardening (relevante se algum dia voltar a expor porta direta)
 
-Se o notebook trocar de IP local (reconecta no Wi-Fi, reinicia etc.),
-conferir com `ip route get 8.8.8.8` e atualizar o IP Interno da regra.
-
-## URL fixa (DuckDNS)
-
-O IP público é dinâmico — pra endereço estável o suficiente pra mandar
-login por e-mail com antecedência, o `docker-compose.duckdns.yml` sobe um
-container que mantém `sdp-viii-interno.duckdns.org` sempre apontando pro IP
-atual desta conexão, checando a cada poucos minutos. Esse container precisa
-continuar rodando desde antes de mandar os e-mails de login, não só no dia
-do evento.
-
-## Checklist de hardening antes de ativar de verdade
-
-- [ ] Firewalld local: confirmar que a porta 8000 está liberada.
+- [ ] Firewalld local: confirmar que a porta usada está liberada.
       ```bash
       ! sudo firewall-cmd --add-port=8000/tcp --permanent
       ! sudo firewall-cmd --reload
       ```
-      Pra desativar depois:
-      ```bash
-      ! sudo firewall-cmd --remove-port=8000/tcp --permanent
-      ! sudo firewall-cmd --reload
-      ```
 - [ ] Auditar o que mais está escutando no notebook (KDE Connect, Samba,
-      CUPS etc.) — nada disso pode ficar alcançável de fora além da porta
-      forwardada.
-- [ ] `DEBUG=0` confirmado (já é o padrão do `docker-compose.prod.yml` —
-      não mudar isso).
+      CUPS etc.).
+- [ ] `DEBUG=0` confirmado (já é o padrão do `docker-compose.prod.yml`).
 - [ ] Backup do Postgres antes do evento e depois de encerrar.
 - [ ] Fedora atualizado (`sudo dnf upgrade`) antes de expor por longos períodos.
 
+Com Cloudflare Tunnel, a única porta relevante é a **de saída** (o
+container conecta nele mesmo, não precisa liberar nada de entrada) —
+esse checklist deixa de ser crítico enquanto o Tunnel for o método ativo.
+
 ## Status
 
-- Cadastro na Oracle Cloud (Always Free) — feito, uso adiado pra depois.
-- Redirecionamento de porta no roteador — feito, mas precisa apontar pra
-  8443 (Caddy) em vez de 8000 (web) depois da mudança pra HTTPS.
-- Hostname fixo via DuckDNS — feito e testado (`sdp-viii-interno.duckdns.org`).
-- Stack local (db+redis+web+worker+caddy) — testado de ponta a ponta com
-  certificado autoassinado, funcionando.
-- Certificado real via DNS-01 — tentado com DuckDNS (nameservers instáveis)
-  e deSEC (incompatibilidade de validação DNSSEC), ambos abandonados por
-  motivos do lado dos provedores, não da nossa config. Plugins de ambos
-  continuam compilados na imagem do Caddy caso valha retomar depois.
-- Chrome travando no autoassinado — diagnosticado como QUIC/HTTP3 tentando
-  UDP (porta não liberada) + bug conhecido do Chrome nessa combinação com
-  certificado autoassinado. Corrigido desabilitando HTTP/3 no Caddy. Falta
-  confirmação externa no Chrome.
+- Cadastro na Oracle Cloud (Always Free) — feito, **reservado como
+  último recurso**, só usar se as opções self-hosted se esgotarem de
+  vez (decisão explícita do Leo).
+- Cloudflare Tunnel — ativo agora, funcionando, URL efêmera.
+- Caddy + autoassinado + roteador — configurado e documentado, mas fora
+  do caminho ativo (bloqueio do lado da operadora).
+- Certificado real via DNS-01 (DuckDNS e deSEC) — abandonado por
+  motivos do lado dos provedores. Plugins de ambos continuam compilados
+  na imagem do Caddy (`Dockerfile.caddy`) caso valha retomar.
+- Falta resolver: URL estável (pra mandar login por e-mail com
+  antecedência) — Quick Tunnel não serve pra isso. Precisa de conta
+  Cloudflare + domínio próprio, ou Oracle, quando chegar a hora.

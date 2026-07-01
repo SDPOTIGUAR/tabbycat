@@ -1,0 +1,27 @@
+# Zero-config public exposure via Cloudflare: no account, no domain, no
+# DNS, no router port-forward. cloudflared makes an outbound-only
+# connection to Cloudflare and gets back a random
+# https://xxxx.trycloudflare.com URL (printed in this container's logs).
+#
+# Chosen tonight because the Vivo residential connection kept refusing
+# inbound connections on the forwarded port even after a router reboot -
+# router config was verified correct twice, so it looks like ISP-side
+# blocking, not something fixable from our end.
+#
+# Caveat (Cloudflare's own): meant for testing, no uptime guarantee, and
+# the URL changes every restart - NOT a stable link for emailing logins
+# in advance. That still needs Oracle or a real domain later.
+#
+# Usage:
+#   podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.quicktunnel.yml up -d
+#   podman logs -f tabbysdp_cloudflared_1   # grab the https://*.trycloudflare.com URL here
+
+version: '3'
+
+services:
+  cloudflared:
+    image: docker.io/cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://web:8000
+    depends_on:
+      - web
