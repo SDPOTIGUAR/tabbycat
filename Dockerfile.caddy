@@ -1,0 +1,10 @@
+# Custom Caddy build with the DuckDNS DNS-01 provider plugin, so we can
+# get a real Let's Encrypt cert via DNS challenge - Vivo permanently
+# blocks inbound 80/443, which rules out HTTP-01/TLS-ALPN-01 entirely.
+FROM docker.io/library/caddy:builder AS builder
+
+RUN xcaddy build --with github.com/caddy-dns/duckdns
+
+FROM docker.io/library/caddy:latest
+
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy

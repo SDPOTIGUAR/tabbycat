@@ -1,9 +1,11 @@
 # Tabbycat self-hosted — roteiro de operação
 
-Stack completo (db + redis + web + worker + atualizador DuckDNS) rodando
-neste notebook via Podman. HTTP puro, sem TLS (ver justificativa mais abaixo).
+Stack completo (db + redis + web + worker + Caddy + atualizador DuckDNS)
+rodando neste notebook via Podman. HTTPS com certificado autoassinado (ver
+justificativa mais abaixo).
 
-**URL para divulgar:** http://sdp-viii-interno.duckdns.org:8443/
+**URL para divulgar:** https://sdp-viii-interno.duckdns.org:8443/
+(vai pedir pra aceitar o aviso de certificado — normal, é autoassinado)
 
 ## Referência rápida
 
@@ -14,13 +16,14 @@ cd "~/Desktop/Projetos/TABBY SDP"
 
 **Subir tudo:**
 ```bash
-podman-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+TABBYCAT_DOMAIN=sdp-viii-interno.duckdns.org \
+  podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.fallback.yml up -d
 DUCKDNS_TOKEN=<token de duckdns.org> podman-compose -f docker-compose.duckdns.yml up -d
 ```
 
 **Derrubar tudo:**
 ```bash
-podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.duckdns.yml down
+podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.fallback.yml -f docker-compose.duckdns.yml down
 ```
 
 **Ver status de tudo:**
@@ -41,7 +44,8 @@ podman restart tabbysdp_<serviço>_1
 
 **Testar se está respondendo** (local, de dentro de casa):
 ```bash
-curl -sI http://127.0.0.1:8000/
+curl -sI http://127.0.0.1:8000/           # web direto, sem TLS
+curl -sk -o /dev/null -w '%{http_code}\n' https://127.0.0.1:8443/   # via Caddy
 ```
 Deve responder `302` apontando pra `/start/` ou pra tela de login. Testar
 pelo hostname público (`sdp-viii-interno.duckdns.org:8443`) **de dentro de
@@ -59,14 +63,22 @@ podman exec tabbysdp_db_1 pg_dump -U tabbycat tabbycat > backup-$(date +%Y%m%d-%
 cat backup-XXXXXXXX.sql | podman exec -i tabbysdp_db_1 psql -U tabbycat tabbycat
 ```
 
-## Por que HTTP puro, sem TLS/certificado
+## Por que HTTPS autoassinado (não certificado real)
 
-Decisão deliberada: sem domínio próprio controlável e com a Vivo bloqueando
-as portas 80/443 de entrada (única forma de validar certificado real via
-Let's Encrypt), não dá pra ter certificado confiável aqui. Certificado
-autoassinado só gera aviso assustador pros participantes sem ganho real de
-segurança pro contexto (torneio interno, baixo risco). Login/senha trafegam
-sem criptografia — aceito conscientemente.
+Sem domínio próprio controlável e com a Vivo bloqueando as portas 80/443 de
+entrada (a forma padrão de validar certificado real via Let's Encrypt), não
+dá pra ter certificado confiável direto. Tentamos contornar isso via DNS-01
+usando o DuckDNS (que não depende de porta nenhuma pra validar) — três
+abordagens diferentes, todas esbarraram nos nameservers do próprio DuckDNS
+estando instáveis (SERVFAIL, timeout). Não é bloqueado pra sempre — pode
+valer tentar de novo depois, mas não é algo pra depender agora.
+
+Por que HTTPS mesmo assim (em vez de manter HTTP puro): WhatsApp e navegadores
+modernos forçam `https://` automaticamente em qualquer link, mesmo quando
+compartilhado com `http://` explícito — sem TLS nenhum escutando na porta, a
+conexão falha (`ERR_SSL_PROTOCOL_ERROR`), não é só um aviso, é erro total.
+Certificado autoassinado troca essa falha total por um aviso clicável
+("não seguro", um clique resolve) — não é bonito, mas funciona.
 
 ## Roteador (Vivo Box / Inventus RTF8225VW)
 
@@ -78,7 +90,7 @@ Menu: **Configurações → Rede Local → Redirecionar Portas**.
 | Nome da Regra | `tabbycat-http` |
 | Protocolo | TCP |
 | Porta Externa | `8443` |
-| Porta Interna | `8000` |
+| Porta Interna | `8443` (aponta pro Caddy, não mais direto pro web/8000) |
 | IP Interno | `192.168.15.7` (IP local deste notebook — conferir se mudou) |
 
 **Por que porta externa 8443 e não 80:** a Vivo bloqueia permanentemente as
@@ -125,6 +137,10 @@ do evento.
 ## Status
 
 - Cadastro na Oracle Cloud (Always Free) — feito, uso adiado pra depois.
-- Redirecionamento de porta no roteador — feito e testado (4G externo, confirmado).
+- Redirecionamento de porta no roteador — feito, mas precisa apontar pra
+  8443 (Caddy) em vez de 8000 (web) depois da mudança pra HTTPS.
 - Hostname fixo via DuckDNS — feito e testado (`sdp-viii-interno.duckdns.org`).
-- Stack local (db+redis+web+worker) — testado de ponta a ponta, funcionando.
+- Stack local (db+redis+web+worker+caddy) — testado de ponta a ponta com
+  certificado autoassinado, funcionando.
+- Certificado real via DNS-01/DuckDNS — tentado e abandonado por instabilidade
+  do lado do DuckDNS, não é bloqueio permanente, pode tentar de novo depois.

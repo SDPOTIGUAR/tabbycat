@@ -1,0 +1,41 @@
+# Optional HTTPS layer: Caddy in front of `web`, self-signed cert
+# (tls internal). Fixes browsers/WhatsApp that force-upgrade links to
+# https:// and hard-fail on a plain HTTP server - trades that hard
+# failure for a click-through "not secure" warning instead.
+#
+# A real trusted cert (no warning at all) was attempted via DNS-01
+# through DuckDNS, since Vivo permanently blocks inbound 80/443 (rules
+# out HTTP-01/TLS-ALPN-01). Tried three ways (Caddy's own duckdns
+# plugin, a manual certbot hook, the dedicated certbot-dns-duckdns
+# plugin) - all failed on DuckDNS's own nameservers being flaky
+# (SERVFAIL / unreachable / hangs), not our config. The image is still
+# built with the duckdns plugin compiled in (Dockerfile.caddy) in case
+# it's worth retrying later - see git history on Caddyfile.fallback
+# for the DNS-01 config to restore.
+#
+# Usage:
+#   TABBYCAT_DOMAIN=sdp-viii-interno.duckdns.org \
+#     podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.fallback.yml up -d
+
+version: '3'
+
+services:
+  caddy:
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+    restart: unless-stopped
+    depends_on:
+      - web
+    volumes:
+      - ./Caddyfile.fallback:/etc/caddy/Caddyfile:ro,Z
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - TABBYCAT_DOMAIN=${TABBYCAT_DOMAIN:?set TABBYCAT_DOMAIN before starting}
+    ports:
+      - "8443:443"
+
+volumes:
+  caddy_data:
+  caddy_config:
