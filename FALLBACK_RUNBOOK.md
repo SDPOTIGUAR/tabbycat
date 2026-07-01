@@ -1,31 +1,72 @@
-# Fallback local de emergência — Tabbycat
+# Tabbycat self-hosted — roteiro de operação
 
-Sobe o stack completo (db + redis + web + worker) neste notebook, usando as
-mesmas imagens/config do deploy principal. Só entra em uso se o Oracle Cloud
-cair durante um torneio.
+Stack completo (db + redis + web + worker + atualizador DuckDNS) rodando
+neste notebook via Podman. HTTP puro, sem TLS (ver justificativa mais abaixo).
 
-HTTP puro, sem TLS/certificado — decisão deliberada: sem domínio próprio e
-com a Vivo bloqueando as portas 80/443 de entrada (ver seção abaixo), não dá
-pra ter certificado real aqui, e certificado autoassinado só gera aviso
-assustador pros participantes sem ganho real de segurança pro contexto (torneio
-interno, baixo risco). Login/senha trafegam sem criptografia — aceito
-conscientemente.
+**URL para divulgar:** http://sdp-viii-interno.duckdns.org:8443/
 
-## Subir
+## Referência rápida
 
+Rodar sempre a partir da pasta do projeto:
 ```bash
-cd "TABBY SDP"
+cd "~/Desktop/Projetos/TABBY SDP"
+```
+
+**Subir tudo:**
+```bash
 podman-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+DUCKDNS_TOKEN=<token de duckdns.org> podman-compose -f docker-compose.duckdns.yml up -d
 ```
 
-Não precisa de nenhuma variável de ambiente — `web` já publica a porta 8000
-no host por padrão.
-
-## Derrubar
-
+**Derrubar tudo:**
 ```bash
-podman-compose -f docker-compose.yml -f docker-compose.prod.yml down
+podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.duckdns.yml down
 ```
+
+**Ver status de tudo:**
+```bash
+podman ps -a --filter "name=tabbysdp" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+```
+
+**Ver logs de um serviço** (`web`, `worker`, `db`, `redis`, `duckdns`):
+```bash
+podman logs tabbysdp_<serviço>_1 --tail 50
+podman logs -f tabbysdp_web_1        # acompanhar em tempo real
+```
+
+**Reiniciar só um serviço** (sem derrubar o resto):
+```bash
+podman restart tabbysdp_<serviço>_1
+```
+
+**Testar se está respondendo** (local, de dentro de casa):
+```bash
+curl -sI http://127.0.0.1:8000/
+```
+Deve responder `302` apontando pra `/start/` ou pra tela de login. Testar
+pelo hostname público (`sdp-viii-interno.duckdns.org:8443`) **de dentro de
+casa trava sempre** — o roteador não suporta hairpin NAT. Isso não indica
+problema real; só o teste por fora (celular no 4G/5G, Wi-Fi desligado) é
+confiável.
+
+**Backup do banco:**
+```bash
+podman exec tabbysdp_db_1 pg_dump -U tabbycat tabbycat > backup-$(date +%Y%m%d-%H%M).sql
+```
+
+**Restaurar backup:**
+```bash
+cat backup-XXXXXXXX.sql | podman exec -i tabbysdp_db_1 psql -U tabbycat tabbycat
+```
+
+## Por que HTTP puro, sem TLS/certificado
+
+Decisão deliberada: sem domínio próprio controlável e com a Vivo bloqueando
+as portas 80/443 de entrada (única forma de validar certificado real via
+Let's Encrypt), não dá pra ter certificado confiável aqui. Certificado
+autoassinado só gera aviso assustador pros participantes sem ganho real de
+segurança pro contexto (torneio interno, baixo risco). Login/senha trafegam
+sem criptografia — aceito conscientemente.
 
 ## Roteador (Vivo Box / Inventus RTF8225VW)
 
@@ -44,41 +85,26 @@ Menu: **Configurações → Rede Local → Redirecionar Portas**.
 portas de entrada "clássicas" (80, 443, 21, 23, 25, 53 e demais abaixo de
 1024) no nível da própria operadora pra planos residenciais — nenhuma
 configuração de roteador contorna isso, só existe desbloqueio em link
-dedicado/empresarial. Portas acima de 1024 passam livremente. Confirmado na
-prática: com porta externa 443 a conexão nunca chegava (timeout); com 8443
-funcionou.
+dedicado/empresarial. Portas acima de 1024 passam livremente.
 
 O painel gera automaticamente uma regra de firewall ("pinhole") junto com o
 redirecionamento — não precisa mexer na aba Firewall separadamente.
 
+Se o notebook trocar de IP local (reconecta no Wi-Fi, reinicia etc.),
+conferir com `ip route get 8.8.8.8` e atualizar o IP Interno da regra.
+
 ## URL fixa (DuckDNS)
 
-O IP é dinâmico — pra endereço estável o suficiente pra mandar login por
-e-mail com antecedência, o `docker-compose.duckdns.yml` sobe um container
-que mantém `sdp-viii-interno.duckdns.org` sempre apontando pro IP atual
-desta conexão, checando a cada poucos minutos. Sem isso, o IP pode mudar
-entre o envio dos e-mails e o dia do evento.
+O IP público é dinâmico — pra endereço estável o suficiente pra mandar
+login por e-mail com antecedência, o `docker-compose.duckdns.yml` sobe um
+container que mantém `sdp-viii-interno.duckdns.org` sempre apontando pro IP
+atual desta conexão, checando a cada poucos minutos. Esse container precisa
+continuar rodando desde antes de mandar os e-mails de login, não só no dia
+do evento.
 
-```bash
-DUCKDNS_TOKEN=<token de duckdns.org, nunca commitar> \
-  podman-compose -f docker-compose.duckdns.yml up -d
-```
+## Checklist de hardening antes de ativar de verdade
 
-Esse container precisa continuar rodando (não só no dia do evento — desde
-antes de mandar os e-mails de login).
-
-Endereço final pra divulgar:
-
-**http://sdp-viii-interno.duckdns.org:8443/**
-
-(testar sempre por fora da rede de casa — celular com Wi-Fi desligado — o
-roteador não suporta hairpin NAT, então acessar de dentro de casa pelo
-próprio IP/hostname público trava, mesmo estando tudo certo).
-
-## Checklist de hardening antes de ativar
-
-- [ ] Firewalld local: confirmar que a porta 8000 (só ela, é a única usada
-      agora) está liberada.
+- [ ] Firewalld local: confirmar que a porta 8000 está liberada.
       ```bash
       ! sudo firewall-cmd --add-port=8000/tcp --permanent
       ! sudo firewall-cmd --reload
@@ -92,17 +118,13 @@ próprio IP/hostname público trava, mesmo estando tudo certo).
       CUPS etc.) — nada disso pode ficar alcançável de fora além da porta
       forwardada.
 - [ ] `DEBUG=0` confirmado (já é o padrão do `docker-compose.prod.yml` —
-      não mudar isso durante o teste).
-- [ ] Backup do Postgres antes de ativar (`podman exec tabbysdp_db_1 pg_dump
-      -U tabbycat tabbycat > backup.sql`) e depois de encerrar a emergência.
-- [ ] Fedora atualizado (`sudo dnf upgrade`) antes de expor.
-- [ ] Janela de exposição curta: só ativa o port-forward no roteador durante
-      a emergência de fato; desativa (e reverte o firewalld) assim que o
-      Oracle voltar.
+      não mudar isso).
+- [ ] Backup do Postgres antes do evento e depois de encerrar.
+- [ ] Fedora atualizado (`sudo dnf upgrade`) antes de expor por longos períodos.
 
-## O que falta pra isso funcionar de ponta a ponta
+## Status
 
-- Cadastro na Oracle Cloud (Always Free) — já feito.
-- Regra de redirecionamento de porta no roteador — já feita e testada
-  (funcionando via 4G externo, confirmado).
-- Hostname fixo via DuckDNS — já feito e testado (`sdp-viii-interno.duckdns.org`).
+- Cadastro na Oracle Cloud (Always Free) — feito, uso adiado pra depois.
+- Redirecionamento de porta no roteador — feito e testado (4G externo, confirmado).
+- Hostname fixo via DuckDNS — feito e testado (`sdp-viii-interno.duckdns.org`).
+- Stack local (db+redis+web+worker) — testado de ponta a ponta, funcionando.
