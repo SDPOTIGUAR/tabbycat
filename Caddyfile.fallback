@@ -1,5 +1,8 @@
 {
 	ocsp_stapling off
+	servers {
+		protocols h1 h2
+	}
 }
 
 {$TABBYCAT_DOMAIN} {
