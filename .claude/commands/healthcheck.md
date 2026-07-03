@@ -1,55 +1,56 @@
-Healthcheck e recuperação automática do stack self-hosted do Tabbycat (torneio VIII Interno SDP), rodando via Podman neste notebook, exposto via Cloudflare Tunnel. Ver `FALLBACK_RUNBOOK.md` na raiz do projeto pra contexto completo e histórico (por que Cloudflare Tunnel, não roteador/Caddy).
+Healthcheck e recuperação automática do Tabbycat (torneio VIII Interno SDP). Rodando primariamente na **Oracle Cloud** (VM `tabbycat`, São Paulo, IP `163.176.41.81`, Docker). O notebook local (Podman + Cloudflare Tunnel) é fallback, não o método ativo. Ver `FALLBACK_RUNBOOK.md` na raiz do projeto pra contexto completo e histórico.
 
 ## Quando invocar automaticamente
 
 Triggers: "healthcheck do tabbycat", "verifica se o site está no ar", "o tabbycat caiu", "sobe o tabbycat de novo", "site do torneio fora do ar", ou qualquer menção a checar/restaurar o serviço do torneio.
 
-## Procedimento
+## Procedimento (Oracle — método ativo)
 
-### 1. Checar containers
+### 1. Checar containers na VM
 ```bash
-podman ps -a --filter "name=tabbysdp" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+ssh -i ~/.ssh/oracle_tabbycat ubuntu@163.176.41.81 "cd ~/tabbycat && sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.oracle.yml ps"
 ```
-Esperado: `tabbysdp_db_1`, `tabbysdp_redis_1`, `tabbysdp_web_1`, `tabbysdp_worker_1`, `tabbysdp_cloudflared_1` todos com status `Up`. `tabbysdp_duckdns_1` também, se estiver rodando (não crítico pro acesso atual).
+Esperado: `db`, `redis`, `web`, `worker`, `caddy` todos `Up`/`running`.
 
-### 2. Testar resposta HTTP local
+### 2. Testar a URL pública de verdade
 ```bash
-curl -sI -m 5 http://127.0.0.1:8000/
+curl -sI -m 8 https://sdp-viii-interno.duckdns.org/
 ```
-Esperado: `302` redirecionando pra `/start/` ou pra login. Isso confirma que web+db+redis estão realmente respondendo, não só "rodando".
+Esperado: `302` pra `/start/` ou login, certificado real (sem precisar de `-k`). Diferente do notebook, aqui **não tem falso negativo de hairpin NAT** — se esse curl falhar rodando local, é problema de verdade.
 
-### 3. Confirmar a URL pública do Cloudflare Tunnel e testar de fato
+### 3. Se algo estiver down
+
 ```bash
-podman logs tabbysdp_cloudflared_1 2>&1 | grep -A2 "trycloudflare"
-curl -sI -m 8 <url encontrada>
+ssh -i ~/.ssh/oracle_tabbycat ubuntu@163.176.41.81
+cd ~/tabbycat
+sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.oracle.yml up -d
 ```
-Essa URL muda toda vez que o container `cloudflared` reinicia — se o Leo perguntar "qual é o link", sempre pegar do log agora, nunca reusar um link antigo sem checar.
+Isso recria/reinicia só o que precisar, sem derrubar o resto.
 
-### 4. Se algo estiver down ou não responder
-
-Reiniciar só o que precisa, na ordem de dependência (db/redis primeiro, depois web/worker; cloudflared por último e só se necessário, já que reiniciar ele troca a URL pública):
+### 4. Logs de um serviço específico
 ```bash
-podman restart tabbysdp_db_1 tabbysdp_redis_1
-sleep 5
-podman restart tabbysdp_web_1 tabbysdp_worker_1
+ssh -i ~/.ssh/oracle_tabbycat ubuntu@163.176.41.81 "cd ~/tabbycat && sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.oracle.yml logs <serviço> --tail 50"
 ```
-Só reiniciar `tabbysdp_cloudflared_1` se ele próprio estiver down — e avisar o Leo que a URL pública vai mudar.
 
-Se um container não existir mais (foi removido, não só parado), subir tudo de novo:
+### 5. Re-testar depois de qualquer ação
+Repetir o passo 2. Se ainda falhar, checar logs do serviço específico e reportar o erro real ao Leo em vez de tentar mais reinícios às cegas.
+
+## Fallback local (notebook + Cloudflare Tunnel)
+
+Só usar se a Oracle estiver genuinamente fora do ar e for uma emergência.
 ```bash
 cd "TABBY SDP"
 podman-compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.quicktunnel.yml up -d
+podman logs tabbysdp_cloudflared_1 2>&1 | grep -A2 "trycloudflare"
 ```
+A URL do Cloudflare Tunnel muda a cada restart — sempre pegar do log, nunca reusar link antigo.
 
-### 5. Re-testar depois de qualquer restart
-Repetir o passo 2 (`curl` local). Se ainda falhar depois do restart, checar logs do serviço específico (`podman logs tabbysdp_web_1 --tail 50`) e reportar o erro real ao Leo em vez de tentar mais reinícios às cegas.
-
-### 6. Reportar
+## Reportar
 
 Resumo direto: o que estava down (se algo estava), o que foi feito, e o resultado do teste final. Se estiver tudo certo desde o início, só confirmar em uma linha — não narrar o processo inteiro.
 
 ## Fora do escopo desta skill
 
-- Configuração do roteador (redirecionamento de porta, IP interno) — isso é manual, no painel `192.168.15.1`, documentado no `FALLBACK_RUNBOOK.md`.
-- Mudança de porta externa, domínio ou infraestrutura — isso é decisão do Leo, não uma correção automática.
-- Rodar `sudo` (firewalld etc.) — sempre pedir pro Leo rodar via `!`, nunca tentar contornar.
+- Mudar shape/instância da Oracle, billing, ou infraestrutura — decisão do Leo.
+- Configuração do roteador Vivo (só relevante se algum dia voltar a usar aquele caminho) — documentado no `FALLBACK_RUNBOOK.md`.
+- Rodar `sudo` local (firewalld etc.) — sempre pedir pro Leo rodar via `!`, nunca tentar contornar. (Na VM Oracle, `sudo` via SSH funciona normal, não tem essa restrição.)
