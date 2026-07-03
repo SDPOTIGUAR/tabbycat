@@ -1,0 +1,9 @@
+{
+	servers {
+		protocols h1 h2
+	}
+}
+
+sdp-viii-interno.duckdns.org {
+	reverse_proxy web:8000
+}

@@ -1,0 +1,27 @@
+# Overlay for the Oracle Cloud deployment: Caddy in front of `web`, real
+# Let's Encrypt cert via standard HTTP-01/TLS-ALPN-01 - Oracle's ports
+# aren't ISP-blocked like the home Vivo connection was, so no DNS-01
+# gymnastics needed here, Caddy just gets a real cert automatically.
+#
+# Usage (run on the Oracle VM itself):
+#   sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.oracle.yml up -d
+
+version: '3'
+
+services:
+  caddy:
+    image: docker.io/library/caddy:latest
+    restart: unless-stopped
+    depends_on:
+      - web
+    volumes:
+      - ./Caddyfile.oracle:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - '80:80'
+      - '443:443'
+
+volumes:
+  caddy_data:
+  caddy_config:

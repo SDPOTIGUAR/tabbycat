@@ -1,12 +1,56 @@
 # Tabbycat self-hosted — roteiro de operação
 
-Stack completo (db + redis + web + worker) rodando neste notebook via
-Podman, exposto publicamente via **Cloudflare Tunnel** (`cloudflared`).
+## Método ativo agora: Oracle Cloud (VPS real, certificado real)
 
-**Método ativo agora: Cloudflare Tunnel (URL efêmera).** Ver seção
-"Histórico" mais abaixo pra entender por que não é Caddy/roteador/DNS
-próprio — essa parte foi tentada a fundo e abandonada por bloqueio do
-lado da operadora, não por escolha.
+**URL do torneio: https://sdp-viii-interno.duckdns.org/**
+
+Instância `tabbycat` na Oracle Cloud (Always Free/Free Trial), São Paulo
+(`sa-saopaulo-1`), Ubuntu 24.04 ARM64, shape `VM.Standard.A2.Flex` (2 OCPU/12GB
+— **não é Always Free**, roda com crédito do Free Trial de propósito, ver
+nota de billing abaixo). Docker (não Podman — mais estável nesse Ubuntu).
+
+- **IP público:** `163.176.41.81`
+- **SSH:** `ssh -i ~/.ssh/oracle_tabbycat ubuntu@163.176.41.81`
+- **Projeto na VM:** `~/tabbycat` (clonado direto do GitHub, branch `develop`)
+- **Subir/reiniciar:**
+  ```bash
+  ssh -i ~/.ssh/oracle_tabbycat ubuntu@163.176.41.81
+  cd ~/tabbycat
+  sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.oracle.yml up -d
+  ```
+- **Logs:**
+  ```bash
+  sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.oracle.yml logs <serviço> --tail 50
+  ```
+- **HTTPS:** Caddy com certificado real (Let's Encrypt automático, `Caddyfile.oracle`)
+  — diferente do notebook, aqui as portas 80/443 não são bloqueadas por
+  operadora nenhuma, então não precisou de DNS-01/DuckDNS/deSEC, foi automático.
+- **DNS:** `sdp-viii-interno.duckdns.org` aponta pro IP da Oracle (fixo
+  enquanto a instância não for recriada — não precisa de updater automático
+  rodando, mas não custa nada deixar).
+
+**⚠️ Billing:** o shape `A2.Flex` não é Always Free (só o `A1.Flex` é).
+Está rodando de propósito no crédito do Free Trial ($300/30 dias) por
+decisão consciente do Leo, depois de esbarrar em "Out of Capacity"
+tentando A1. Acompanhar o billing da conta Oracle antes do crédito
+acabar — depois disso, ou migra pra A1.Flex (grátis, exige recriar a
+instância) ou passa a ser cobrado.
+
+**Credenciais/config guardadas:**
+- Chave SSH: `~/.ssh/oracle_tabbycat` (privada) / `.pub` (pública)
+- Config da OCI CLI: `~/.oci/config` + `~/.oci/oci_api_key.pem`
+- Imagem `ocicli` local (Docker/Podman) com o CLI da Oracle instalado,
+  pra gerenciar a instância por linha de comando sem precisar da UI web
+  (que se mostrou bem confusa de navegar).
+
+## Método anterior (notebook + Cloudflare Tunnel) — desativado, mantido como referência
+
+Antes da Oracle, o stack rodava neste notebook via Podman, exposto por
+**Cloudflare Tunnel** (`cloudflared`). Funcionava, mas tinha as limitações
+de URL efêmera e não ser 100% self-hosted. Ver seção "Histórico" mais
+abaixo pra entender toda a sequência (roteador, Caddy, DNS-01) que levou
+até aqui — vale como referência se a Oracle cair e precisar de um
+fallback rápido usando o que já está pronto no notebook.
 
 ## Referência rápida
 
