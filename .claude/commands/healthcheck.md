@@ -6,11 +6,31 @@ Triggers: "healthcheck do tabbycat", "verifica se o site está no ar", "o tabbyc
 
 ## Procedimento (Oracle — método ativo)
 
+**Estado esperado por padrão (pós-torneio): instância PARADA de propósito**
+(pra poupar recurso/crédito). Isso não é uma falha — só ligar de novo
+quando for realmente precisar do site no ar.
+
+### 0. Confirmar se a instância está ligada
+```bash
+ssh -i ~/.ssh/oracle_tabbycat -o ConnectTimeout=8 ubuntu@163.176.41.81 "echo ok"
+```
+Se der timeout/recusa e o Leo pediu pra "subir o site", a instância provavelmente
+está parada — ligar via CLI (usa a imagem `ocicli` já buildada):
+```bash
+podman run --rm -v ~/.oci:/home/leo/.oci:ro,Z -e HOME=/home/leo ocicli \
+  compute instance action --instance-id ocid1.instance.oc1.sa-saopaulo-1.antxeljrek3qcfyc7dzog6whlfhqssjijeoxpfl3fq65zkveprejnyv3nscq --action START
+```
+Esperar ~30-60s até o SSH responder, depois seguir pro passo 1.
+
 ### 1. Checar containers na VM
 ```bash
 ssh -i ~/.ssh/oracle_tabbycat ubuntu@163.176.41.81 "cd ~/tabbycat && sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.oracle.yml ps"
 ```
-Esperado: `db`, `redis`, `web`, `worker`, `caddy` todos `Up`/`running`.
+Esperado: `db`, `redis`, `web`, `worker`, `caddy` todos `Up`/`running`. Se a
+instância acabou de ligar, os containers não sobem sozinhos ainda — precisa
+do passo 3 (`up -d`) pra recriá-los, já que fizemos `docker compose down`
+antes de parar a instância (containers removidos, só os volumes de dados
+persistem).
 
 ### 2. Testar a URL pública de verdade
 ```bash

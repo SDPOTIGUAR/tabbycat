@@ -85,3 +85,7 @@ dump.rdb
 
 # Claude Code session state (commands/ is intentionally tracked)
 .claude/scheduled_tasks.lock
+
+# DB backups - contain real participant PII, never commit
+backups/
+*.pem

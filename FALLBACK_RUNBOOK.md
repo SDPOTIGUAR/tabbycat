@@ -36,12 +36,18 @@ tentando A1. Acompanhar o billing da conta Oracle antes do crédito
 acabar — depois disso, ou migra pra A1.Flex (grátis, exige recriar a
 instância) ou passa a ser cobrado.
 
-**Credenciais/config guardadas:**
-- Chave SSH: `~/.ssh/oracle_tabbycat` (privada) / `.pub` (pública)
-- Config da OCI CLI: `~/.oci/config` + `~/.oci/oci_api_key.pem`
-- Imagem `ocicli` local (Docker/Podman) com o CLI da Oracle instalado,
-  pra gerenciar a instância por linha de comando sem precisar da UI web
-  (que se mostrou bem confusa de navegar).
+**Credenciais/config guardadas** (valores reais só na máquina local / Bitwarden,
+nunca neste arquivo — o repo vive no GitHub, potencialmente público):
+
+| O quê | Onde vive | Pra que serve |
+|---|---|---|
+| Conta Oracle Cloud | login `leonardoalcantara427@gmail.com` (Bitwarden) | conta da nuvem, região São Paulo |
+| Chave SSH da instância | `~/.ssh/oracle_tabbycat` (priv.) / `.pub` neste notebook, perms 600 | acesso `ssh ubuntu@<ip>` na VM |
+| OCI API key (usuário IAM) | `~/.oci/config` + `~/.oci/oci_api_key.pem`, perms 600 | autentica o `oci` CLI (via imagem `ocicli`) pra gerenciar a instância sem depender da UI web (que se mostrou confusa) |
+| Conta DuckDNS | domínio `sdp-viii-interno.duckdns.org` | hostname fixo, token de update guardado só como env var na hora de rodar, nunca em arquivo |
+| Conta deSEC (abandonada) | domínio `sdpotiguar.dedyn.io` | tentativa de DNS-01 que não funcionou (ver histórico); token não usado mais, mas a conta/domínio continuam existindo caso valha retomar |
+| Superusuário do Tabbycat | usuário `ORGANIZAÇÃO` | login do painel admin do torneio; senha só no Bitwarden |
+| Senha do Postgres | `tabbycat` (literal, hardcoded no `docker-compose.yml`) | é só um placeholder de dev já público no próprio repositório oficial do Tabbycat, não protege nada sensível sozinha (o banco nem fica exposto de fora) |
 
 ## Método anterior (notebook + Cloudflare Tunnel) — desativado, mantido como referência
 
@@ -201,49 +207,100 @@ residencial pra hospedar algo publicamente é frágil. Cloudflare Tunnel
 contorna o problema inteiro (conexão sempre de saída, nunca precisa de
 porta aberta).
 
-## Roteador (Vivo Box / Inventus RTF8225VW) — referência, não está em uso agora
+## Roteador (Vivo Box / Inventus RTF8225VW) — não está mais em uso, tem ponta solta
 
 Painel em `192.168.15.1`, login `admin` + senha na etiqueta do aparelho.
-Menu: **Configurações → Rede Local → Redirecionar Portas**. Regra que
-tínhamos configurado (não removida, só não está mais no caminho ativo):
-TCP, externa `8443`, interna `8443`, IP interno `192.168.15.7`.
+Regra de redirecionamento (`Configurações → Rede Local → Redirecionar
+Portas`) e o firewall pinhole correspondente **ainda existem lá**, apontando
+pra porta 8443 deste notebook (`192.168.15.7`) — não removidos. Como o
+caminho ativo agora é a Oracle, isso não protege nem serve mais pra nada,
+é só uma porta aberta sem função. **Recomendo remover essa regra e o
+pinhole correspondente** da próxima vez que mexer no roteador, mesmo que
+o "connection refused" sugira que pode já não estar passando tráfego —
+não custa fechar o que não se usa mais.
 
-## URL fixa (DuckDNS) — ainda relevante como updater de IP
+## Tabela comparativa — todas as estratégias tentadas
 
-O container `docker-compose.duckdns.yml` mantém `sdp-viii-interno.duckdns.org`
-apontando pro IP público atual desta conexão. Não é mais usado como parte
-do caminho de acesso principal (isso agora é a URL do Cloudflare Tunnel),
-mas não custa deixar rodando — pode ser útil se algum dia reativarmos o
-caminho via roteador.
+| Método | Resultado | Self-hosted? | Prós | Contras |
+|---|---|---|---|---|
+| Render (PaaS gratuito) | No ar, mas com worker cortado | Não | Zero manutenção de infra | Free tier (512MB) não cabe web+worker juntos; sem alocação automática |
+| HTTP puro + port-forward (Vivo) | Funcionou, depois parou | Sim | Simples, sem terceiro | Vivo bloqueia portas clássicas; "connection refused" sem causa 100% confirmada |
+| Caddy autoassinado + roteador | Funcionou (Firefox), trava no Chrome até o fix de HTTP/3 | Sim | Resolve o erro do WhatsApp | Aviso de certificado; depende da rede residencial |
+| DNS-01 (DuckDNS / deSEC) | Falhou nos dois | Sim | Certificado real, sem aviso | Nameservers/DNSSEC dos provedores grátis, fora do nosso controle |
+| Cloudflare Tunnel | Funcionou | Parcial (roteia pela rede deles) | Sem porta, sem depender de roteador/operadora | URL efêmera (Quick Tunnel), não serve pra e-mail com antecedência |
+| **Oracle Cloud (atual)** | **Funcionando, certificado real automático** | Sim (VPS próprio) | URL estável, sem bloqueio de porta, worker completo funcionando | Não é "Always Free" nesse shape (crédito de trial); exige manutenção de VM |
 
-## Checklist de hardening (relevante se algum dia voltar a expor porta direta)
+## Checklist de hardening
 
-- [ ] Firewalld local: confirmar que a porta usada está liberada.
-      ```bash
-      ! sudo firewall-cmd --add-port=8000/tcp --permanent
-      ! sudo firewall-cmd --reload
-      ```
+- [ ] Firewalld local (notebook): sem porta de entrada aberta pro Tabbycat
+      é necessário agora (Oracle não depende do notebook pra nada). Se
+      algum dia voltar a expor daqui, liberar só a porta específica usada.
 - [ ] Auditar o que mais está escutando no notebook (KDE Connect, Samba,
-      CUPS etc.).
+      CUPS etc.) antes de expor qualquer porta de novo.
 - [ ] `DEBUG=0` confirmado (já é o padrão do `docker-compose.prod.yml`).
-- [ ] Backup do Postgres antes do evento e depois de encerrar.
-- [ ] Fedora atualizado (`sudo dnf upgrade`) antes de expor por longos períodos.
+- [ ] Backup do Postgres antes do evento e depois de encerrar (feito —
+      ver `backups/`, fora do controle de versão).
+- [ ] Fedora atualizado (`sudo dnf upgrade`) se este notebook voltar a
+      expor qualquer porta.
+- [ ] Remover a regra de port-forward + pinhole no Vivo Box (ver seção
+      acima) — ponta solta conhecida, ainda não fechada.
 
-Com Cloudflare Tunnel, a única porta relevante é a **de saída** (o
-container conecta nele mesmo, não precisa liberar nada de entrada) —
-esse checklist deixa de ser crítico enquanto o Tunnel for o método ativo.
+## Auditoria de segurança/limpeza (pós-torneio, 2026-07-07)
 
-## Status
+Feita depois de desligar tudo e o notebook crashar por sobrecarga de
+memória (provavelmente builds/containers em paralelo — anotado, evitar
+repetir). O que foi checado:
 
-- Cadastro na Oracle Cloud (Always Free) — feito, **reservado como
-  último recurso**, só usar se as opções self-hosted se esgotarem de
-  vez (decisão explícita do Leo).
-- Cloudflare Tunnel — ativo agora, funcionando, URL efêmera.
-- Caddy + autoassinado + roteador — configurado e documentado, mas fora
-  do caminho ativo (bloqueio do lado da operadora).
-- Certificado real via DNS-01 (DuckDNS e deSEC) — abandonado por
-  motivos do lado dos provedores. Plugins de ambos continuam compilados
-  na imagem do Caddy (`Dockerfile.caddy`) caso valha retomar.
-- Falta resolver: URL estável (pra mandar login por e-mail com
-  antecedência) — Quick Tunnel não serve pra isso. Precisa de conta
-  Cloudflare + domínio próprio, ou Oracle, quando chegar a hora.
+- **Containers do Tabbycat neste notebook**: removidos (`podman rm -f`),
+  só as imagens ficaram (`tabbysdp_web`, `tabbysdp_worker`,
+  `tabbysdp_caddy`, `ocicli`, além das bases `caddy`, `cloudflared`,
+  `duckdns` puxadas do Docker Hub). Volumes de dados locais (Postgres,
+  Redis, Caddy) também removidos — não são mais a fonte de verdade
+  (essa passou a ser a Oracle, já com backup).
+- **⚠️ Engano meu durante a limpeza**: rodei `podman network prune -f`
+  sem escopar só pro Tabbycat, e isso apagou redes órfãs de **outros
+  projetos seus** (`main_firefly_iii`, `docker_default`). Confirmei que
+  não havia containers rodando usando essas redes no momento — o Podman
+  Compose recria a rede automaticamente na próxima vez que esses
+  projetos subirem, então não deve ter causado perda de dados, mas foi
+  uma ação mais ampla do que devia.
+- **Firewalld local (notebook)**: achei uma regra ampla e permanente já
+  ativa — `ports: 1025-65535/udp 1025-65535/tcp` na zona
+  `FedoraWorkstation` (interface Wi-Fi). Isso libera **todas as portas
+  não-privilegiadas** de entrada, bem mais do que qualquer coisa que
+  pedimos abrir nesta sessão especificamente. Não sei confirmar se já
+  existia antes desse projeto ou se foi introduzida em algum momento
+  aqui — vale você decidir se quer restringir isso, já que não é
+  necessário pra nada relacionado ao Tabbycat agora.
+- **Roteador Vivo Box**: regra de port-forward + pinhole pra porta 8443
+  continuam configuradas, sem função (ver seção acima) — não removidas
+  (sem acesso remoto ao roteador).
+- **Oracle Cloud**: instância **parada** (sem cobrança de computação
+  enquanto parada). Security list da VCN continua permitindo entrada
+  22/80/443 de qualquer origem — sem risco imediato com a instância
+  parada, mas vale saber que volta a valer assim que ligar de novo.
+- **Credenciais neste notebook**: `~/.ssh/oracle_tabbycat` e
+  `~/.oci/oci_api_key.pem`/`config`, todos com permissão `600` (só o
+  seu usuário lê). Nenhum token/senha real foi commitado no repositório
+  em nenhum momento (sempre passados como variável de ambiente na hora
+  de rodar, nunca salvos em arquivo versionado).
+- **Skill `/healthcheck`**: atualizada (ver `.claude/commands/healthcheck.md`)
+  pra refletir que o método ativo agora é Oracle, atualmente parado.
+- **Pods/containers de outros projetos**: `thought-*` (Nextcloud/Purple)
+  e `couchdb` seguem intactos, não foram tocados em nenhum momento desta
+  sessão.
+
+## Status final
+
+- **Oracle Cloud** — método ativo, instância **parada** pra poupar
+  recursos/crédito. Subir de novo com o comando em "Subir/reiniciar" no
+  topo deste arquivo.
+- **Backup do banco + mídia** — feito, em `backups/` (fora do git).
+- **Cloudflare Tunnel / Caddy local / DuckDNS updater no notebook** —
+  todos parados/removidos, mantidos só como referência documentada.
+- **Ponta solta conhecida, não fechada**: regra de port-forward no
+  roteador Vivo (sem função, sem acesso remoto pra remover) e a regra
+  ampla de firewalld local (`1025-65535`) — ambas pendentes de decisão
+  sua.
+- **Alocação automática de juízes/salas** — confirmada funcionando na
+  Oracle (worker completo, sem corte de memória como no Render).
